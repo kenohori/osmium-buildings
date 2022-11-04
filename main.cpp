@@ -17,7 +17,7 @@ class BuildingHandler : public osmium::handler::Handler {
   LatLng ll;
   H3Index i;
 public:
-  const int h3_resolution = 4;
+  const int h3_resolution = 3;
   std::size_t buildings;
   std::unordered_map<H3Index, std::size_t> buildings_total;
   
@@ -88,7 +88,7 @@ int main(int argc, const char * argv[]) {
   }
   
   std::ofstream output_stream;
-  output_stream.open("/Users/ken/Versioned/my-website/maps/osm-buildings/buildings.csv"); // output csv file
+  output_stream.open("/Users/ken/Versioned/my-website/maps/osm-buildings/buildings3.csv"); // output csv file
   output_stream << "lat,lng,buildings\n";
   
   for (auto const &cell: handler.buildings_total) {
