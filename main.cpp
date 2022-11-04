@@ -8,23 +8,21 @@
 #include <osmium/visitor.hpp>
 #include <osmium/index/map/flex_mem.hpp>
 
+#include <h3/h3api.h>
+
 using index_type = osmium::index::map::FlexMem<osmium::unsigned_object_id_type, osmium::Location>;
 using location_handler_type = osmium::handler::NodeLocationsForWays<index_type>;
 
 class BuildingHandler : public osmium::handler::Handler {
+  LatLng ll;
+  H3Index i;
 public:
-  const int degree_divisions = 10;  // how many divisions per degree (lat and long)
+  const int h3_resolution = 4;
   std::size_t buildings;
-  std::vector<std::vector<std::size_t>> buildings_total;
+  std::unordered_map<H3Index, std::size_t> buildings_total;
   
   BuildingHandler() {
     buildings = 0;
-    for (int lon = 0; lon < 360*degree_divisions; ++lon) {
-      buildings_total.emplace_back(std::vector<std::size_t>());
-      for (int lat = 0; lat < 180*degree_divisions; ++lat) {
-        buildings_total.back().push_back(0);
-      }
-    }
   }
   
   void area(const osmium::Area& area) {
@@ -32,18 +30,17 @@ public:
     std::size_t num_points = 0;
     for (auto const &ring: area.outer_rings()) {
       for (auto const &node: ring) {
-//        if (buildings < 100) std::cout << "Point at " << node.lon() << ", " << node.lat() << std::endl;
         sum_lon += node.lon();
         sum_lat += node.lat();
         ++num_points;
       }
     } if (num_points > 0) {
-//      if (buildings < 100) std::cout << "Centroid at " << sum_lon/num_points << ", " << sum_lat/num_points << std::endl;
-      long longitude = std::round(degree_divisions*sum_lon/num_points);
-      long latitude = std::round(degree_divisions*sum_lat/num_points);
+      ll.lng = M_PI*sum_lon/(num_points*180.0);
+      ll.lat = M_PI*sum_lat/(num_points*180.0);
       if (buildings % 1000000 == 0) std::cout << "\t" << buildings/1000000 << "m buildings processed " << std::endl;
       ++buildings;
-      ++buildings_total[(longitude+180*degree_divisions)%(360*degree_divisions)][(latitude+90*degree_divisions)%(180*degree_divisions)];
+      latLngToCell(&ll, h3_resolution, &i);
+      ++buildings_total[i];
     }
   }
 };
@@ -78,9 +75,6 @@ int main(int argc, const char * argv[]) {
     osmium::relations::read_relations(input_file, mp_manager);
     std::cout << " done" << std::endl;
     
-//    std::cerr << "Memory:\n";
-//    osmium::relations::print_used_memory(std::cerr, mp_manager.used_memory());
-    
     index_type index;
     location_handler_type location_handler{index};
     location_handler.ignore_errors();
@@ -91,21 +85,19 @@ int main(int argc, const char * argv[]) {
       osmium::apply(buffer, handler);
     }));
     reader.close();
-    
-//    std::cerr << "Memory:\n";
-//    osmium::relations::print_used_memory(std::cerr, mp_manager.used_memory());
   }
   
   std::ofstream output_stream;
   output_stream.open("/Users/ken/Versioned/my-website/maps/osm-buildings/buildings.csv"); // output csv file
   output_stream << "lat,lng,buildings\n";
-  for (int i = 0; i < 360*handler.degree_divisions; ++i) {
-    for (int j = 0; j < 180*handler.degree_divisions; ++j) {
-      if (handler.buildings_total[i][j] > 0) {
-        output_stream << (j/double(handler.degree_divisions))-90.0 << "," << (i/double(handler.degree_divisions))-180.0 << "," << handler.buildings_total[i][j] << "\n";
-      }
-    }
-  } output_stream.close();
+  
+  for (auto const &cell: handler.buildings_total) {
+    LatLng ll;
+    cellToLatLng(cell.first, &ll);
+    output_stream << 180.0*ll.lat/M_PI << "," << 180.0*ll.lng/M_PI << "," << cell.second << "\n";
+  }
+  
+  output_stream.close();
   
   return 0;
 }
